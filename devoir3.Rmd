@@ -14,26 +14,28 @@ set.seed(123)
 # Exercice1 
 
 $W$ est une matrice de covariance, donc symétrique, positive semi défini.  
-On peut écrire sans perte de généralité que $\epsilon \sim \mathcal{N}(0,\sigma^2W)$  
+On a aussi $\epsilon \sim \mathcal{N}(0,W)$  
 Il est possible de faire une décomposition, suivant la formule de Cholesky (matrice hermitienne = matrice symmétrique dans le cas réel)  
 Soit $L \in \pmb{\mathbb{R}}^{n,n}$ une matrice triangulaire inférieur.  
-$W = L \cdot L^t$  
-Si l'on ajoute à droite et à gauche de l'équation $L^{-1}$, on a,  
-$L^{-1} \cdot Y = L^{-1} \cdot X \cdot \beta + L^{-1} \dot \epsilon$  __(1)__  
+$W^{-1} = L^t \cdot L$ car si W est défini positif, $W^{-1}$ l'est aussi.
+Si l'on ajoute à droite et à gauche de l'équation $L$, on a,  
+$L \cdot Y = L \cdot X \cdot \beta + L \dot \epsilon$  __(1)__  
 que l'on peut ré écrire  
-$Y^* = X*\cdot \beta + \epsilon^*$  
-avec $Y^* = L^{-1} \cdot Y$, $X^* = L^{-1} \cdot X$, et $\epsilon^* = L^{-1} \cdot \epsilon$  
+$Y^* = X^*\cdot \beta + \epsilon^*$  
+avec $Y^* = L \cdot Y$, $X^* = L \cdot X$, et $\epsilon^* = L \cdot \epsilon$  
 Les propriétés de $\epsilon^*$ sont:  
 
 ##### __Esperance de $\epsilon^*$__
- $E(\epsilon^* | X) = E(L^{-1}  \epsilon^* | X) = L^{-1}  E(\epsilon | X) = 0$   
+ $E(\epsilon^* | X) = E(L  \epsilon^* | X) = L  E(\epsilon | X) = 0$   
 
 ##### __Variance de $\epsilon^*$__
-$V(\epsilon^* | X) =  E((L^{-1}  \epsilon^*  - 0)  (L^{-1}  \epsilon^* - 0)^t)$     
-$V(\epsilon^* | X) =  E(L^{-1}  \epsilon^*  (\epsilon^{*})^t (L^{-1})^t)$  
-$V(\epsilon^* | X) =  L^{-1}  E(\epsilon^*  (\epsilon^{*})^t) (L^{-1})^t$  
-$V(\epsilon^* | X) =  L^{-1}  V(\epsilon^*) (L^{-1})^t$  
-$V(\epsilon^* | X) =  L^{-1}  L L^t (L^{-1})^t$  
+$V(\epsilon^* | X) =  E((L  \epsilon  - 0)  (L  \epsilon - 0)^t)$     
+$V(\epsilon^* | X) =  E(L  \epsilon  \epsilon^t L^t)$  
+$V(\epsilon^* | X) =  L  E(\epsilon  \epsilon^t) L^t$  
+$V(\epsilon^* | X) =  L  V(\epsilon) L^t$  
+$V(\epsilon^* | X) =  L  W (L)^t$  
+$V(\epsilon^* | X) =  L  (L^tL)^{-1}  L^t$ 
+$V(\epsilon^* | X) =  L  L^{-1} (L^t)^{-1}  L^t$  
 $V(\epsilon^* | X) = I_d^n$
 
 On s'est donc ramené à la formule classique de régression linéaire où les erreurs sont indépendantes et identiquement distribuées.  
@@ -42,9 +44,10 @@ On a dans le cas général pour $Y = X \beta + \epsilon$
 $\beta_ {opt} = (X^t X)^{-1}X^t Y$  
 Ainsi pour l'équation 1, on a   
 $\beta_ {opt} = ((X^*)^t X^*)^{-1}(X^*)^t Y^*$  
-$\beta_ {opt} = ((L^{-1}X)^t L^{-1}X)^{-1}(L^{-1}X)^t L^{-1}Y$  
-$\beta_ {opt} = ((X^t (L^{-1})^t L^{-1}X)^{-1}(L^{-1}X)^t L^{-1}Y$  
-__$\beta_ {opt} = (X^tW^{-1}X)^{-1}X^t W^{-1}Y$__  
+$\beta_ {opt} = ((LX)^t LX)^{-1}(LX)^t LY$  
+$\beta_ {opt} = ((X^t L^t LX)^{-1}(LX)^t LY$  
+$\beta_ {opt} = ((X^t L^t LX)^{-1}X^tL^t LY$   
+$\beta_ {opt} = (X^tW^{-1}X)^{-1}X^t W^{-1}Y$  
 
 Dans le cas classique de la régression linéaire, l'estimateur $\beta^*$ de beta a une distribution normale asymptotiquement, $\beta^*  \sim \mathcal{N}(0,\sigma^2(X^tX)^{-1})$
 
@@ -232,7 +235,7 @@ knn = knn(train = train_X_std , test = test_X_std , cl = train_Y, k = 5,prob = T
 Pour afficher les courbes séparant les classes suivant les différents modèles, nous allons utiliser la fonction contour.
 ```{r}
 # Logistic Regression boundaries
-plot(don[1:2],col = ifelse(don$y == "C","red","blue"))
+plot(don[1:2],col = ifelse(don$y == "C","red","blue"),xlab = "x1",ylab = "x2")
 slope = coef(md1)[2]/(-coef(md1)[3])
 intercept = coef(md1)[1]/(-coef(md1)[3]) 
 abline(intercept , slope , col="blue")
@@ -243,7 +246,7 @@ bound.x = seq(from = min(don$x1),to = max(don$x1), length.out = np)
 bound.y = seq(from = min(don$x2),to =  max(don$x2),length.out =  np)
 bound = expand.grid(x1 = bound.x, x2 = bound.y)
 prediction = as.numeric(predict(lda, bound)$class)
-contour(x = bound.x, y = bound.y, z = matrix(prediction,nrow = np,ncol = np),levels = c(1, 2), add = TRUE, drawlabels = FALSE,col = "orange",lwd = 2)
+contour(x = bound.x, y = bound.y, z = matrix(prediction,nrow = np,ncol = np),levels = c(1, 2), add = TRUE, drawlabels = FALSE,col = "brown",lwd = 2)
 
 # QDA boundaries
 prediction1 = as.numeric(predict(qda, bound)$class)
@@ -255,6 +258,9 @@ contour(x = bound.x, y = bound.y, z = matrix(prediction1,nrow = np,ncol = np),le
 knn = knn(train = don[,1:2] , test = bound , cl = don[,3], k = 5,prob = TRUE)
 # *sd(bound) + mean(bound),
 contour(x = bound.x, y = bound.y, z = matrix(as.numeric(knn), nrow = np,ncol = np),levels = c(1, 2), add = TRUE, drawlabels = FALSE,col = "green",lwd = 2)
+legend("bottomright", (c("QDA","Logistic Regression","KNN", "LDA")), lty=1, col=c('red', 'blue', 'green',' brown'),  cex=.75)
+
+
 ```
 
 ##### 2/
