@@ -1,0 +1,13 @@
+When should I apply feature scaling ?
+
+You should normalize when the scale of a feature is irrelevant or misleading, and not normalize when the scale is meaningful.
+K-means considers Euclidean distance to be meaningful. If a feature has a big scale compared to another, but the first feature truly represents greater diversity, then clustering in that dimension should be penalized.
+In regression, as long as you have a bias it does not matter if you normalize or not since you are discovering an affine map, and the composition of a scaling transformation and an affine map is still affine.
+When there are learning rates involved, e.g. when you're doing gradient descent, the input scale effectively scales the gradients, which might require some kind of second order method to stabilize per-parameter learning rates. It's probably easier to normalize the inputs if it doesn't matter otherwise.
+
+-----------------------------------------------------
+Normalization vs. scaling ?
+I am not aware of an "official" definition and even if there it is, you shouldn't trust it as you will see it being used inconsistently in practice.
+This being said, scaling in statistics usually means a linear transformation of the form f(x)= ax + b
+Normalizing can either mean applying a transformation so that you transformed data is roughly normally distributed, but it can also simply mean putting different variables on a common scale. Standardizing, which means subtracting the mean and dividing by the standard deviation, is an example of the later usage. As you may see it's also an example of scaling. An example for the first would be taking the log for lognormal distributed data.
+But what you should take away is that when you read it you should look for a more precise description of what the author did. Sometimes you can get it from the context.

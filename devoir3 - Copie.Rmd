@@ -1,0 +1,197 @@
+---
+title: "Devoir Statistical Learning 3"
+author: "Louis Henri Franc"
+date: "1 novembre 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+set.seed(123)
+```
+
+# Exercice 2
+## Regression logistique
+#### Comparaison des modèles avec la méthode LOOCV
+```{r cars}
+don<-read.csv2("Capteurs.csv")
+# One Hot encoding
+don$y= as.factor(don$y)
+don$y = (don$y == "C")
+
+MSE1 = 0
+MSE2 = 0
+MSE3 = 0
+for (i in 1:length(don$y)) {
+  testIndex = floor(runif(1,1,length(don$y) + 1))
+  
+  trainSet = don[-testIndex,]
+  testSet = don[testIndex,]
+  
+  md1 = glm( y ~ x1 + x2 , data = trainSet , family=binomial)
+  md2 = glm( y ~ x1 + x2 + I(x1*x2), data = trainSet , family=binomial)
+  md3 = glm( y ~ x1 + x2 + I(x1*x2)  + I(x1^2) + I(x2^2), data = trainSet , family=binomial)
+  
+  predict1 = predict(md1, newdata= as.data.frame(testSet[1:2]),type='response')
+  predict2 = predict(md2, newdata= as.data.frame(testSet[1:2]),type='response') 
+  predict3 = predict(md3, newdata= as.data.frame(testSet[1:2]),type='response')
+  
+  
+  res = ifelse(don$y[testIndex] == TRUE,1,0)
+  
+  MSE1 = MSE1 + ifelse(abs(res - predict1) > 0.5,1,0 )
+  MSE2 = MSE2 + ifelse(abs(res - predict2) > 0.5,1,0 )
+  MSE3 = MSE3 + ifelse(abs(res - predict3) > 0.5,1,0 )
+}
+MSE1 = MSE1 / length(don$y)
+MSE2 = MSE2 / length(don$y)
+MSE3 = MSE3 / length(don$y)
+print(paste("Taux d'erreur du modèle 1", MSE1))
+print(paste("Taux d'erreur du modèle 2", MSE2))
+print(paste("Taux d'erreur du modèle 3", MSE3))
+```
+
+
+#### Comparaison des modèles avec la 10 k-fold Cross Validation
+```{r}
+
+nombreFold = length(don$y) / 10
+
+don =  don[sample(nrow(don)),]
+folds =  cut(seq(1,nrow(don)) , breaks=nombreFold , labels=FALSE)
+res = 0
+for(i in 1:nombreFold) {
+
+    testIndexes = which(folds==i,arr.ind=TRUE)
+    
+    testSet = don[testIndexes,]
+    trainSet = don[-testIndexes,]
+    
+    md1 = glm( y ~ x1 + x2 , data = trainSet , family=binomial)
+    md2 = glm( y ~ x1 + x2 + I(x1*x2), data = trainSet , family=binomial)
+    md3 = glm( y ~ x1 + x2 + I(x1*x2)  + I(x1^2) + I(x2^2), data = trainSet , family=binomial)
+  
+    predict1 = predict(md1, newdata= as.data.frame(testSet[1:2]),type='response')
+    predict2 = predict(md2, newdata= as.data.frame(testSet[1:2]),type='response') 
+    predict3 = predict(md3, newdata= as.data.frame(testSet[1:2]),type='response')
+  
+    res = ifelse(don$y[testIndexes] == TRUE,1,0)
+    MSE1 = MSE1 + Reduce("+", ifelse(abs(res - predict1) > 0.5,1,0 ))
+    MSE2 = MSE2 + Reduce("+", ifelse(abs(res - predict2) > 0.5,1,0 ))
+    MSE3 = MSE3 + Reduce("+", ifelse(abs(res - predict3) > 0.5,1,0 ))
+  
+}
+MSE1 = MSE1 / length(don$y)
+MSE2 = MSE2 / length(don$y)
+MSE3 = MSE3 / length(don$y)
+print(paste("Taux d'erreur du modèle 1", MSE1))
+print(paste("Taux d'erreur du modèle 2", MSE2))
+print(paste("Taux d'erreur du modèle 3", MSE3))
+```
+
+Selon les deux méthodes de validation, le modèles qui a le MSE le plus petit est le plus simple $Y = \alpha X1 + \beta X2 + \epsilon$. 
+
+## Analyse discriminante
+
+On calcule tout d'abord la moyenne et la matrice de covariance/variance pour les deux classes.
+```{r}
+# Probabilité à priori pour la classe C
+priorC = sum(don$y == TRUE) 
+
+# Probabilité à priori pour la classe D
+priorD = sum(don$y == FALSE)
+
+# mu for class C
+muC = c(mean(don[which(don$y == TRUE, arr.ind=TRUE),1]), mean(don[which(don$y == TRUE, arr.ind=TRUE),2]))
+
+# mu for class D
+muD = c(mean(don[which(don$y == FALSE, arr.ind=TRUE),1]), mean(don[which(don$y == FALSE, arr.ind=TRUE),2]))
+
+# sigma for class C
+varC = matrix(nrow = 2 , ncol = 2)
+varC[1,1] = 1/(nrow(don) - 1) * Reduce("+", (don[which(don$y == TRUE, arr.ind=TRUE),1] - rep(muC[1],sum(don$y == TRUE)) ) ^ 2)
+varC[2,2] = 1/(nrow(don) - 1) * Reduce("+", (don[which(don$y == TRUE, arr.ind=TRUE),2] - rep(muC[2],sum(don$y == TRUE)) ) ^ 2)
+cov_X1_X2 = 0;
+for(i in 1:nrow(don)) {
+  cov_X1_X2 = cov_X1_X2 + (don$x1[i] - muC[1]) * (don$x2[i] - muC[2])
+}
+cov_X1_X2 = cov_X1_X2 / nrow(don)
+varC[1,2] = cov_X1_X2
+varC[2,1] = cov_X1_X2
+
+# sigma for class D
+varD = matrix(nrow = 2 , ncol = 2)
+varD[1,1] = 1/(nrow(don) - 1) * Reduce("+", (don[which(don$y == FALSE, arr.ind=TRUE),1] - rep(muC[1],sum(don$y == FALSE)) ) ^ 2)
+varD[2,2] = 1/(nrow(don) - 1) * Reduce("+", (don[which(don$y == FALSE, arr.ind=TRUE),2] - rep(muC[2],sum(don$y == FALSE)) ) ^ 2)
+cov_X1_X2 = 0;
+for(i in 1:nrow(don)) {
+  cov_X1_X2 = cov_X1_X2 + (don$x1[i] - muD[1]) * (don$x2[i] - muD[2])
+}
+cov_X1_X2 = cov_X1_X2 / nrow(don)
+varD[1,2] = cov_X1_X2
+varD[2,1] = cov_X1_X2
+
+# Pour la classe C, X suit une loi normale de moyenne
+print(muC)
+# et de variance
+print(varC)
+
+# Pour la classe D, X suit une loi normale de moyenne
+print(muD)
+# et de variance
+print(varD)
+
+```
+
+
+```{r}
+library("MASS")
+don<-read.csv2("Capteurs.csv")
+# One Hot encoding
+lda = lda(y ~ x1 + x2,data=don)
+# Calculer le taux d'erreur
+prev_lda = predict(lda,don)
+prev_lda_y = prev_lda$class
+taux_err_lda =  mean(prev_lda_y != don$y)
+print(paste("Nombre d'erreurs de LDA",taux_err_lda))
+print(paste("Equation qui sépare les deux classes est de la forme X1 *",lda$scaling[1]," + X2",lda$scaling[2]))
+
+qda = qda(y ~ x1 + x2,data=don)
+# Calculer le taux d'erreur
+prev_qda = predict(qda,don)
+prev_qda_y = prev_qda$class
+taux_err_qda =  mean(prev_qda_y != don$y)
+print(paste("Nombre d'erreurs de QDA",taux_err_qda))
+```
+
+
+```{r}
+library("class")
+# KNN
+# Standardising the data
+don_scale = scale(don[,c(1,2)])
+
+# Splitting the data
+train = don_scale[0:99,]
+test = don_scale[100:120,]
+train_X_std = train[,c(1,2)]
+test_X_std = test[,c(1,2)]
+train_Y = don[0:99,3]
+test_Y = don[100:120,3]
+
+knn = knn(train=train_X_std ,test= test_X_std , cl= train_Y, k = 5,prob = TRUE)
+prob <- attr(knn, "prob")
+prob <- ifelse(knn=="1", prob, 1-prob)
+px1 =  seq(min(don$x1), max(don$x1) , 0.2)
+px2 <- seq(min(don$x2), max(don$x2) , 0.2)
+knnb <- matrix(prob, length(px1), length(px2))
+contour(px1, px2, knnb, levels=0.5, labels="", xlab="", ylab="", main=
+          "", axes=FALSE)
+
+plot(don[1:2],col = ifelse(don$y == "C","red","blue"))
+slope = coef(md1)[2]/(-coef(md1)[3])
+intercept = coef(md1)[1]/(-coef(md1)[3]) 
+abline(intercept , slope , col="blue")
+abline(lda$scaling[1] , lda$scaling[2])
+```

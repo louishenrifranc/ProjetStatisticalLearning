@@ -1,0 +1,119 @@
+---
+title: "Devoir 1. Statistical Learning"
+author: "Louis Henri Franc"
+date: "16 septembre 2016"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Devoir 1
+
+### Exercice 2
+#### Question a
+Voici le diagramme de dispersion pour les valeurs.
+```{r}
+x = c(68,70,65,55,70,72,75)
+y = c(168,172,165,160,180,182,175)
+plot(x,y)
+```
+
+#### Question b
+```{r, echo=FALSE}
+len = length(x)
+y_sum = sum(y)
+x_sum = sum(x)
+x_sum_squared = sum(x*x)
+x_mean = x_sum/len
+y_mean = y_sum/len
+```
+
+```{r}
+# Modèle 1
+beta_o = y_sum/len
+
+# Modèle 2
+beta_o2 = y_sum/x_sum
+
+# Modèle 3
+a = (sum((x - x_mean) * (y - y_mean)))/(sum((x - x_mean)^2))
+b = (y_mean - a*x_mean)
+```
+Voici un résumé des différentes valeurs obtenues de y pour chaque modèle
+```{r, echo=FALSE}
+matrix_final = matrix(c(y,rep(y_mean,len),beta_o2*x,b+a*x),nrow = len,byrow = FALSE)
+res = data.frame(matrix_final)
+colnames(res) = c("True value","Premier modele","Deuxieme modele","Troisieme modele")
+print(res)
+```
+Pour le dernier modèle de la forme $y = ax + b$, le graphe obtenue est de la forme 
+```{r}
+plot(x,y)
+abline(b,a)
+```
+
+#### Question c
+```{r}
+bo = 150:190
+y1 = (sum(y) - len*bo)^2
+plot(bo,y1)
+```
+
+Si l'on calcule la moyenne des valeurs de y, on trouve:
+```{r}
+print(mean(y))
+```
+qui correspond à la valeur trouvé en cherchant le minimum sur le graphe.
+
+#### Question d
+Voici la première version fausse
+```{r}
+u = 100:200
+v = seq(0,2,0.01)
+f = outer(u,v,Vectorize(function(u,v)(sum((y - u - v*x)^2))))
+contour(u,v,f, nlevels = 40)
+persp(u,v,f)
+```
+
+```{r}
+
+
+```
+#### Question e
+Pour minimiser la somme des carrés, nous allons utiliser la fonction optim
+```{r,echo=FALSE}
+dat = data.frame(x = c(68,70,65,55,70,72,75),
+                 y = c(168,172,165,160,180,182,175))
+```
+```{r}
+# SSR(Beta_o)
+min.RSS <- function(data, par) {
+  with(data, sum((y - par[1])^2))
+}
+# On utilise la méthode de Brent car la méthode de Nelder-Mead est instable pour  
+# l'optimisation en dimension 1
+result <- optim(par=c(0),min.RSS,data=dat,method = "Brent",lower = 0,upper = 200)
+
+print(result)
+```
+Si l'on compare avec le résultat que l'on a trouvé, on trouve exactement la même valeur à $10^-{3}$ près.
+```{r}
+# SSR(Beta_o,Beta_1)
+
+min.RSS <- function(data, par) {
+  with(data, sum((y - par[1] - par[2] * x)^2))
+}
+
+result <- optim(par = c(0, 0), min.RSS, data = dat)
+print(result)
+```
+Si l'on compare avec le résultat que l'on a trouvé, la différence entre les valeurs de beta est de l'ordre de $10^-2$. La fonction optim trouve des paramètres qui minimisent mieux la fonction de cout, cela est certainement du aux approximations de division de nombre flottants lors de notre calcul.
+```{r}
+f = function(y,x,u,v){
+  sum((y - v - u*x)^2)
+}
+print(f(x,y,a,b))
+print(f(x,y,result$par[2],result$par[1]))
+```

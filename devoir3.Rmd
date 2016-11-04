@@ -1,0 +1,382 @@
+---
+title: "Devoir Statistical Learning 3"
+author: "Louis Henri Franc"
+date: "1 novembre 2016"
+output: html_document
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(123)
+```
+
+# Exercice1 
+
+$W$ est une matrice de covariance, donc symétrique, positive semi défini.  
+On peut écrire sans perte de généralité que $\epsilon \sim \mathcal{N}(0,\sigma^2W)$  
+Il est possible de faire une décomposition, suivant la formule de Cholesky (matrice hermitienne = matrice symmétrique dans le cas réel)  
+Soit $L \in \pmb{\mathbb{R}}^{n,n}$ une matrice triangulaire inférieur.  
+$W = L \cdot L^t$  
+Si l'on ajoute à droite et à gauche de l'équation $L^{-1}$, on a,  
+$L^{-1} \cdot Y = L^{-1} \cdot X \cdot \beta + L^{-1} \dot \epsilon$  __(1)__  
+que l'on peut ré écrire  
+$Y^* = X*\cdot \beta + \epsilon^*$  
+avec $Y^* = L^{-1} \cdot Y$, $X^* = L^{-1} \cdot X$, et $\epsilon^* = L^{-1} \cdot \epsilon$  
+Les propriétés de $\epsilon^*$ sont:  
+
+##### __Esperance de $\epsilon^*$__
+ $E(\epsilon^* | X) = E(L^{-1}  \epsilon^* | X) = L^{-1}  E(\epsilon | X) = 0$   
+
+##### __Variance de $\epsilon^*$__
+$V(\epsilon^* | X) =  E((L^{-1}  \epsilon^*  - 0)  (L^{-1}  \epsilon^* - 0)^t)$     
+$V(\epsilon^* | X) =  E(L^{-1}  \epsilon^*  (\epsilon^{*})^t (L^{-1})^t)$  
+$V(\epsilon^* | X) =  L^{-1}  E(\epsilon^*  (\epsilon^{*})^t) (L^{-1})^t$  
+$V(\epsilon^* | X) =  L^{-1}  V(\epsilon^*) (L^{-1})^t$  
+$V(\epsilon^* | X) =  L^{-1}  L L^t (L^{-1})^t$  
+$V(\epsilon^* | X) = I_d^n$
+
+On s'est donc ramené à la formule classique de régression linéaire où les erreurs sont indépendantes et identiquement distribuées.  
+L'estimateur du maximum de vraisemblance, dans le cas de la régression linéaire, est aussi la solution des moindres carrés.  
+On a dans le cas général pour $Y = X \beta + \epsilon$  
+$\beta_ {opt} = (X^t X)^{-1}X^t Y$  
+Ainsi pour l'équation 1, on a   
+$\beta_ {opt} = ((X^*)^t X^*)^{-1}(X^*)^t Y^*$  
+$\beta_ {opt} = ((L^{-1}X)^t L^{-1}X)^{-1}(L^{-1}X)^t L^{-1}Y$  
+$\beta_ {opt} = ((X^t (L^{-1})^t L^{-1}X)^{-1}(L^{-1}X)^t L^{-1}Y$  
+__$\beta_ {opt} = (X^tW^{-1}X)^{-1}X^t W^{-1}Y$__  
+
+Dans le cas classique de la régression linéaire, l'estimateur $\beta^*$ de beta a une distribution normale asymptotiquement, $\beta^*  \sim \mathcal{N}(0,\sigma^2(X^tX)^{-1})$
+
+Ici, on a $X^* = L^{-1}X$, donc $\beta_{opt}$ est asymptotiquement distribué normalement tel que $\beta_{opt} \sim \mathcal{N}(0,(X^tWX)^{-1})$
+
+# Exercice 2
+#### Question a (Regression logistique)
+##### 1/ Comparaison des modèles avec la méthode LOOCV
+Pour comparer les méthodes, j'ai utilisé comme valeur de référence, le MSE et le nombre moyen d'erreurs.
+```{r cars}
+
+#
+# Code implémenté avant d'utiliser la fonction de la librairie boot
+#
+#
+
+don<-read.csv2("Capteurs.csv")
+don$y= as.factor(don$y)
+don$y = (don$y == "C")
+
+MSE1 = MSE2 = MSE3 = NBE1 = NBE2 = NBE3 = 0
+
+for (i in 1:length(don$y)) {
+  # On prend  un indice pour notre ensemble de test constitué de un élément.
+  testIndex = floor(runif(1,1,length(don$y) + 1))
+  
+  trainSet = don[-testIndex,]
+  testSet = don[testIndex,]
+  
+  # Nos trois modèles
+  md1 = glm( y ~ x1 + x2 , data = trainSet , family=binomial)
+  md2 = glm( y ~ x1 + x2 + I(x1*x2), data = trainSet , family=binomial)
+  md3 = glm( y ~ x1 + x2 + I(x1*x2)  + I(x1^2) + I(x2^2), data = trainSet , family=binomial)
+  
+  # Les prédictions des trois modèles.
+  predict1 = predict(md1, newdata= as.data.frame(testSet[1:2]),type='response')
+  predict2 = predict(md2, newdata= as.data.frame(testSet[1:2]),type='response') 
+  predict3 = predict(md3, newdata= as.data.frame(testSet[1:2]),type='response')
+  
+  # Calcul du MSE
+  res = ifelse(don$y[testIndex] == TRUE,1,0)
+  MSE1 = MSE1 + (predict1 - res) * (predict1 - res)
+  MSE2 = MSE2 + (predict2 - res) * (predict2 - res)
+  MSE3 = MSE3 + (predict3 - res) * (predict3 - res)
+  
+  # Calcul du nombres erreurs
+  NBE1 = NBE1 + ifelse(abs(res - predict1) > 0.5,1,0 )
+  NBE2 = NBE2 + ifelse(abs(res - predict2) > 0.5,1,0 )
+  NBE3 = NBE3 + ifelse(abs(res - predict3) > 0.5,1,0 )
+}
+# Moyenne des erreurs quadratiques
+MSE1 = MSE1 / length(don$y)
+MSE2 = MSE2 / length(don$y)
+MSE3 = MSE3 / length(don$y)
+
+# taux d'erreur en moyenne
+NBE1 = NBE1 / length(don$y)
+NBE2 = NBE2 / length(don$y)
+NBE3 = NBE3 / length(don$y)
+
+print(paste("MSE modele 1", MSE1))
+print(paste("MSE modele 2", MSE2))
+print(paste("MSE modele 3", MSE3))
+
+print(paste("Taux d'erreur du modèle 1", NBE1))
+print(paste("Taux d'erreur du modèle 2", NBE2))
+print(paste("Taux d'erreur du modèle 3", NBE3))
+```
+
+
+##### 2/ Comparaison des modèles avec la 10 k-fold Cross Validation
+```{r}
+MSE1 = MSE2 = MSE3 = NBE1 = NBE2 = NBE3 = 0
+nombreFold = length(don$y) / 10 # nombre de folds
+don =  don[sample(nrow(don)),] # mélange des données
+folds =  cut(seq(1,nrow(don)) , breaks=nombreFold , labels=FALSE) # différents folds
+res = 0
+
+for(i in 1:nombreFold) {
+    # Selection de 10 éléments pour l'ensemble d'entrainement  
+    testIndexes = which(folds==i,arr.ind=TRUE)
+    
+    testSet = don[testIndexes,]
+    trainSet = don[-testIndexes,]
+    
+    md1 = glm( y ~ x1 + x2 , data = trainSet , family=binomial)
+    md2 = glm( y ~ x1 + x2 + I(x1*x2), data = trainSet , family=binomial)
+    md3 = glm( y ~ x1 + x2 + I(x1*x2)  + I(x1^2) + I(x2^2), data = trainSet , family=binomial)
+  
+    predict1 = predict(md1, newdata= as.data.frame(testSet[,1:2]),type='response')
+    predict2 = predict(md2, newdata= as.data.frame(testSet[,1:2]),type='response') 
+    predict3 = predict(md3, newdata= as.data.frame(testSet[,1:2]),type='response')
+  
+    res = ifelse(don$y[testIndexes] == TRUE,1,0)
+    
+    MSE1 = MSE1 + Reduce("+", (predict1 - res) * (predict1 - res))
+    MSE2 = MSE2 + Reduce("+", (predict2 - res) * (predict2 - res))
+    MSE3 = MSE3 + Reduce("+", (predict3 - res) * (predict3 - res))
+  
+    NBE1 = NBE1 + Reduce("+", ifelse(abs(res - predict1) > 0.5,1,0 ))
+    NBE2 = NBE2 + Reduce("+", ifelse(abs(res - predict2) > 0.5,1,0 ))
+    NBE3 = NBE3 + Reduce("+", ifelse(abs(res - predict3) > 0.5,1,0 ))
+}
+MSE1 = MSE1 / length(don$y)
+MSE2 = MSE2 / length(don$y)
+MSE3 = MSE3 / length(don$y)
+
+NBE1 = NBE1 / length(don$y)
+NBE2 = NBE2 / length(don$y)
+NBE3 = NBE3 / length(don$y)
+
+print(paste("MSE modele 1", MSE1))
+print(paste("MSE modele 2", MSE2))
+print(paste("MSE modele 3", MSE3))
+
+print(paste("Taux d'erreur du modèle 1", NBE1))
+print(paste("Taux d'erreur du modèle 2", NBE2))
+print(paste("Taux d'erreur du modèle 3", NBE3))
+```
+
+##### 3/
+Selon les deux méthodes de validation, le modèle qui a le MSE le plus petit est le plus simple $Y = \alpha X1 + \beta X2 + \epsilon$. Pour comprendre pourquoi les modèles plus complexes ont un plus grand MSE, on peut regarder et voir si les modèles complexes n'overfittent pas avec les données d'entrainements : 
+```{r}
+res = 0
+for(i in 1:nombreFold) {
+
+    testIndexes = which(folds==i,arr.ind=TRUE)
+    
+    testSet = don[testIndexes,]
+    trainSet = don[-testIndexes,]
+    
+    # On utilise le trainSet pour trouver les paramètres du modèle, et on regarde ensuite la prédiction pour ces mêmes données.
+    md1 = glm( y ~ x1 + x2 , data = trainSet , family=binomial)
+    md2 = glm( y ~ x1 + x2 + I(x1*x2), data = trainSet , family=binomial)
+    md3 = glm( y ~ x1 + x2 + I(x1*x2)  + I(x1^2) + I(x2^2), data = trainSet , family=binomial)
+  
+    predict1 = predict(md1, newdata= as.data.frame(trainSet[,1:2]),type='response')
+    predict2 = predict(md2, newdata= as.data.frame(trainSet[,1:2]),type='response') 
+    predict3 = predict(md3, newdata= as.data.frame(trainSet[,1:2]),type='response')
+  
+    res = ifelse(don$y[testIndexes] == TRUE,1,0)
+    
+    MSE1 = MSE1 + Reduce("+", (predict1 - res) * (predict1 - res))
+    MSE2 = MSE2 + Reduce("+", (predict2 - res) * (predict2 - res))
+    MSE3 = MSE3 + Reduce("+", (predict3 - res) * (predict3 - res))
+}
+MSE1 = MSE1 / length(don$y)
+MSE2 = MSE2 / length(don$y)
+MSE3 = MSE3 / length(don$y)
+print(paste("MSE modele 1 on training set (just to see if there is overfitting)", MSE1))
+print(paste("MSE modele 2 on training set (just to see if there is overfitting)", MSE2))
+print(paste("MSE modele 3 on training set (just to see if there is overfitting)", MSE3))
+```
+
+#### Question b (Analyse Discriminante)
+##### 1/
+On calcule tout d'abord la moyenne et la matrice de covariance/variance pour les deux classes.
+```{r}
+# Probabilité à priori pour la classe C
+priorC = sum(don$y == TRUE) / length(don$y)
+
+# Probabilité à priori pour la classe D
+priorD = sum(don$y == FALSE) / length(don$y)
+
+# mu for class C
+muC = c(mean(don[which(don$y == TRUE, arr.ind=TRUE),1]), mean(don[which(don$y == TRUE, arr.ind=TRUE),2]))
+
+# mu for class D
+muD = c(mean(don[which(don$y == FALSE, arr.ind=TRUE),1]), mean(don[which(don$y == FALSE, arr.ind=TRUE),2]))
+
+# sigma for class C
+varC = matrix(nrow = 2 , ncol = 2)
+
+# divide by (n - 1) for sigma_i_i
+varC[1,1] = 1/(nrow(don) - 1) * Reduce("+", (don[which(don$y == TRUE, arr.ind=TRUE),1] - rep(muC[1],sum(don$y == TRUE)) ) ^ 2)
+varC[2,2] = 1/(nrow(don) - 1) * Reduce("+", (don[which(don$y == TRUE, arr.ind=TRUE),2] - rep(muC[2],sum(don$y == TRUE)) ) ^ 2)
+cov_X1_X2 = 0;
+for(i in 1:nrow(don)) {
+  cov_X1_X2 = cov_X1_X2 + (don$x1[i] - muC[1]) * (don$x2[i] - muC[2])
+}
+# divide by (n - 2) for sigma_i_j
+cov_X1_X2 = cov_X1_X2 / (nrow(don) - 2)
+varC[1,2] = cov_X1_X2
+varC[2,1] = cov_X1_X2
+
+# sigma for class D
+varD = matrix(nrow = 2 , ncol = 2)
+varD[1,1] = 1/(nrow(don) - 1) * Reduce("+", (don[which(don$y == FALSE, arr.ind=TRUE),1] - rep(muD[1],sum(don$y == FALSE)) ) ^ 2)
+varD[2,2] = 1/(nrow(don) - 1) * Reduce("+", (don[which(don$y == FALSE, arr.ind=TRUE),2] - rep(muD[2],sum(don$y == FALSE)) ) ^ 2)
+cov_X1_X2 = 0;
+for(i in 1:nrow(don)) {
+  cov_X1_X2 = cov_X1_X2 + (don$x1[i] - muD[1]) * (don$x2[i] - muD[2])
+}
+cov_X1_X2 = cov_X1_X2 / (nrow(don) - 2)
+varD[1,2] = cov_X1_X2
+varD[2,1] = cov_X1_X2
+
+# Pour la classe C, X suit une loi normale de moyenne
+print(muC)
+# et de matrice de variance/covariance
+print(varC)
+
+# Pour la classe D, X suit une loi normale de moyenne
+print(muD)
+# et de matrice de variance/covariance
+print(varD)
+```
+
+##### 2,3/
+```{r}
+library("MASS")
+don<-read.csv2("Capteurs.csv")
+
+# Linear Discriminant Analysis
+lda = lda(y ~ x1 + x2,data=don)
+# Calculer le taux d'erreur
+prev_lda = predict(lda,don)
+prev_lda_y = prev_lda$class
+taux_err_lda =  mean(prev_lda_y != don$y)
+print(paste("Nombre d'erreurs de LDA",taux_err_lda))
+print(paste("Equation qui sépare les deux classes est de la forme X1 *",lda$scaling[1]," + X2",lda$scaling[2]))
+
+# Quadratic Discriminant Analysis
+qda = qda(y ~ x1 + x2,data=don)
+# Calculer le taux d'erreur
+prev_qda = predict(qda,don)
+prev_qda_y = prev_qda$class
+taux_err_qda =  mean(prev_qda_y != don$y)
+print(paste("Nombre d'erreurs de QDA",taux_err_qda))
+```
+
+#### Question c (KNN)
+```{r}
+library("class")
+# KNN
+# Standardising the data
+don_scale = scale(don[,c(1,2)])
+
+# Splitting the data
+train = don_scale[0:99,]
+test = don_scale[100:120,]
+train_X_std = train[,c(1,2)]
+test_X_std = test[,c(1,2)]
+train_Y = don[0:99,3]
+test_Y = don[100:120,3]
+knn = knn(train = train_X_std , test = test_X_std , cl = train_Y, k = 5,prob = TRUE)
+```
+
+
+#### Question d (Résume graphique et comparaison)
+##### 1/
+Pour afficher les courbes séparant les classes suivant les différents modèles, nous allons utiliser la fonction contour.
+```{r}
+# Logistic Regression boundaries
+plot(don[1:2],col = ifelse(don$y == "C","red","blue"))
+slope = coef(md1)[2]/(-coef(md1)[3])
+intercept = coef(md1)[1]/(-coef(md1)[3]) 
+abline(intercept , slope , col="blue")
+
+np = 300
+# LDA boundaries
+bound.x = seq(from = min(don$x1),to = max(don$x1), length.out = np)
+bound.y = seq(from = min(don$x2),to =  max(don$x2),length.out =  np)
+bound = expand.grid(x1 = bound.x, x2 = bound.y)
+prediction = as.numeric(predict(lda, bound)$class)
+contour(x = bound.x, y = bound.y, z = matrix(prediction,nrow = np,ncol = np),levels = c(1, 2), add = TRUE, drawlabels = FALSE,col = "orange",lwd = 2)
+
+# QDA boundaries
+prediction1 = as.numeric(predict(qda, bound)$class)
+contour(x = bound.x, y = bound.y, z = matrix(prediction1,nrow = np,ncol = np),levels = c(1, 2), add = TRUE, drawlabels = FALSE,col = "red",lwd = 2)
+
+# KNN boundaries
+# Pour plotter les données, je n'ai pas scaler les données d'entrainements... ce qui rend l'algorithme plus sensible aux variations des features ayant des grandes valeurs
+# Cependant ici les valeurs x1, et x2 ont la moyenne, et la même standart deviation, ce qui ne devrait pas poser trop de problèmes.
+knn = knn(train = don[,1:2] , test = bound , cl = don[,3], k = 5,prob = TRUE)
+# *sd(bound) + mean(bound),
+contour(x = bound.x, y = bound.y, z = matrix(as.numeric(knn), nrow = np,ncol = np),levels = c(1, 2), add = TRUE, drawlabels = FALSE,col = "green",lwd = 2)
+```
+
+##### 2/
+```{r}
+# Determination du taux d'erreur pour les 4 méthodes de classification utilisés précédemment.
+# La méthode de validation sera la 10 Fold Cross Validation
+nombreFold = length(don$y) / 10
+don =  don[sample(nrow(don)),]
+folds =  cut(seq(1,nrow(don)) , breaks=nombreFold , labels=FALSE)
+
+NBELDA = 0 # nb erreurs dans LDA
+NBEQDA = 0 # nb erreurs dans QDA
+NBEKNN = 0 # nb erreurs dans KNN
+NBE1 = 0 # nb erreurs dans LR
+
+for (i in 1:length(don$y)) {
+  testIndex = floor(runif(1,1,length(don$y) + 1))
+  
+  trainSet = don[-testIndex,]
+  testSet = don[testIndex,]
+  
+  md1 = glm( y ~ x1 + x2 , data = trainSet , family=binomial)
+  predict0 = predict(md1, newdata= as.data.frame(testSet[1:2]),type='response')
+  
+  predict1 = predict(lda, newdata= as.data.frame(testSet[1:2]),type='response')
+  predict2 = predict(qda, newdata= as.data.frame(testSet[1:2]),type='response') 
+  knn = knn(train=trainSet[,1:2] ,test= testSet[,1:2] , cl= don$y[-testIndex], k = 5,prob = TRUE)
+
+  NBELDA = NBELDA + sum(predict1$class != testSet$y)
+  NBEQDA = NBEQDA + sum(predict2$class != testSet$y)
+  NBEKNN = NBEKNN + sum(knn != testSet$y)
+  
+  res = ifelse(don$y[testIndex] == "D",1,0)
+  NBE1 = NBE1 + Reduce("+", ifelse(abs(res - predict0) > 0.5,1,0 ))
+}
+
+print(paste("Taux erreur LDA",NBELDA / length(don$y)))
+print(paste("Taux erreur QDA",NBEQDA / length(don$y)))
+print(paste("Taux erreur KNN",NBEKNN / length(don$y)))
+print(paste("Taux erreur de la regression logistique",NBE1 / length(don$y)))
+```
+La meilleure méthode semble être la méthode des KNN, et le modèle simple de régression logistique. # Pourquoi sachant que ca change des que je modifie le random 
+
+
+# Exercice 3
+#### Question a
+On travaille sur les données iris. 5 features sont disponibles, le but de la classification sera de prédire l'espèce de la plante.
+```{r}
+head(iris)
+```
+
+On souuhaite estimer le paramètre défini par $l = \mathbb{E}(min(X_1 + X_2, X_1 + X_3 + X_4, X_2 + X_3))$. Pour tout $i = 1,...,150$, $xi = (x_{i1}, x_{i2}, x_{i3}, x_{i4})$ est une observation d'un  vecteur aléatoire $X = (X_1, x_2, X_3, X_4)^t$  
+
+Un estimateur de $l = \mathbb{E}(min{X_1 + X_2, X_1 + X_3 + X_4, X_2 + X_3})$ peut être par exemple $\hat{l} = min(\mathbb{E}(X_1 + X_2), \mathbb{E}(X_1 + X_3 + X_4), \mathbb{E}(X_2 + X_4))$. 
+
+On peut approximer l'espérance par les données que l'on a, on a donc $\hat{l} = min(\sum\limits_{i=1}^{150} \frac{x_{i1} + x_{i2}}{150},\sum\limits_{i=1}^{150} \frac{x_{i1} + x_{i3} + x_{i4}}{150}, \sum\limits_{i=1}^{150} \frac{x_{i2} + x_{i3}}{150})$ 
+
+
+#### Question b
