@@ -6,6 +6,7 @@ output: html_document
 ---
 
 ```{r setup}
+library("boot")
 knitr::opts_chunk$set(echo = TRUE)
 set.seed(123)
 ```
@@ -112,91 +113,24 @@ print(paste("Taux d'erreur du modèle 1", NBE1))
 print(paste("Taux d'erreur du modèle 2", NBE2))
 print(paste("Taux d'erreur du modèle 3", NBE3))
 ```
-
+On peut aussi la fonction pré-implenté de la librairie boot.
+```{r}
+md1 = glm( y ~ x1 + x2 , data = don , family=binomial)
+md2 = glm( y ~ x1 + x2 + I(x1*x2), data = don , family=binomial)
+md3 = glm( y ~ x1 + x2 + I(x1*x2)  + I(x1^2) + I(x2^2), data = don , family=binomial)
+print(paste("Moyenne des moindres carrés du modele 1", cv.glm(don,md1)$delta[1]))
+print(paste("Moyenne des moindres carrés du modele 2", cv.glm(don,md2)$delta[1]))
+print(paste("Moyenne des moindres carrés du modele 3", cv.glm(don,md3)$delta[1]))
+```
 
 ##### 2/ Comparaison des modèles avec la 10 k-fold Cross Validation
 ```{r}
-MSE1 = MSE2 = MSE3 = NBE1 = NBE2 = NBE3 = 0
-nombreFold = length(don$y) / 10 # nombre de folds
-don =  don[sample(nrow(don)),] # mélange des données
-folds =  cut(seq(1,nrow(don)) , breaks=nombreFold , labels=FALSE) # différents folds
-res = 0
-
-for(i in 1:nombreFold) {
-    # Selection de 10 éléments pour l'ensemble d'entrainement  
-    testIndexes = which(folds==i,arr.ind=TRUE)
-    
-    testSet = don[testIndexes,]
-    trainSet = don[-testIndexes,]
-    
-    md1 = glm( y ~ x1 + x2 , data = trainSet , family=binomial)
-    md2 = glm( y ~ x1 + x2 + I(x1*x2), data = trainSet , family=binomial)
-    md3 = glm( y ~ x1 + x2 + I(x1*x2)  + I(x1^2) + I(x2^2), data = trainSet , family=binomial)
-  
-    predict1 = predict(md1, newdata= as.data.frame(testSet[,1:2]),type='response')
-    predict2 = predict(md2, newdata= as.data.frame(testSet[,1:2]),type='response') 
-    predict3 = predict(md3, newdata= as.data.frame(testSet[,1:2]),type='response')
-  
-    res = ifelse(don$y[testIndexes] == TRUE,1,0)
-    
-    MSE1 = MSE1 + Reduce("+", (predict1 - res) * (predict1 - res))
-    MSE2 = MSE2 + Reduce("+", (predict2 - res) * (predict2 - res))
-    MSE3 = MSE3 + Reduce("+", (predict3 - res) * (predict3 - res))
-  
-    NBE1 = NBE1 + Reduce("+", ifelse(abs(res - predict1) > 0.5,1,0 ))
-    NBE2 = NBE2 + Reduce("+", ifelse(abs(res - predict2) > 0.5,1,0 ))
-    NBE3 = NBE3 + Reduce("+", ifelse(abs(res - predict3) > 0.5,1,0 ))
-}
-MSE1 = MSE1 / length(don$y)
-MSE2 = MSE2 / length(don$y)
-MSE3 = MSE3 / length(don$y)
-
-NBE1 = NBE1 / length(don$y)
-NBE2 = NBE2 / length(don$y)
-NBE3 = NBE3 / length(don$y)
-
-print(paste("MSE modele 1", MSE1))
-print(paste("MSE modele 2", MSE2))
-print(paste("MSE modele 3", MSE3))
-
-print(paste("Taux d'erreur du modèle 1", NBE1))
-print(paste("Taux d'erreur du modèle 2", NBE2))
-print(paste("Taux d'erreur du modèle 3", NBE3))
+print(paste("Moyenne des moindres carrés du modele 1", cv.glm(don,md1,K = 10)$delta[1]))
+print(paste("Moyenne des moindres carrés du modele 2", cv.glm(don,md2,K = 10)$delta[1]))
+print(paste("Moyenne des moindres carrés du modele 3", cv.glm(don,md3,K = 10)$delta[1]))
 ```
-
 ##### 3/
-Selon les deux méthodes de validation, le modèle qui a le MSE le plus petit est le plus simple $Y = \alpha X1 + \beta X2 + \epsilon$. Pour comprendre pourquoi les modèles plus complexes ont un plus grand MSE, on peut regarder et voir si les modèles complexes n'overfittent pas avec les données d'entrainements : 
-```{r}
-res = 0
-for(i in 1:nombreFold) {
-
-    testIndexes = which(folds==i,arr.ind=TRUE)
-    
-    testSet = don[testIndexes,]
-    trainSet = don[-testIndexes,]
-    
-    # On utilise le trainSet pour trouver les paramètres du modèle, et on regarde ensuite la prédiction pour ces mêmes données.
-    md1 = glm( y ~ x1 + x2 , data = trainSet , family=binomial)
-    md2 = glm( y ~ x1 + x2 + I(x1*x2), data = trainSet , family=binomial)
-    md3 = glm( y ~ x1 + x2 + I(x1*x2)  + I(x1^2) + I(x2^2), data = trainSet , family=binomial)
-  
-    predict1 = predict(md1, newdata= as.data.frame(trainSet[,1:2]),type='response')
-    predict2 = predict(md2, newdata= as.data.frame(trainSet[,1:2]),type='response') 
-    predict3 = predict(md3, newdata= as.data.frame(trainSet[,1:2]),type='response')
-  
-    res = ifelse(don$y[testIndexes] == TRUE,1,0)
-    
-    MSE1 = MSE1 + Reduce("+", (predict1 - res) * (predict1 - res))
-    MSE2 = MSE2 + Reduce("+", (predict2 - res) * (predict2 - res))
-    MSE3 = MSE3 + Reduce("+", (predict3 - res) * (predict3 - res))
-}
-MSE1 = MSE1 / length(don$y)
-MSE2 = MSE2 / length(don$y)
-MSE3 = MSE3 / length(don$y)
-print(paste("MSE modele 1 on training set (just to see if there is overfitting)", MSE1))
-print(paste("MSE modele 2 on training set (just to see if there is overfitting)", MSE2))
-print(paste("MSE modele 3 on training set (just to see if there is overfitting)", MSE3))
-```
+Selon les deux méthodes de validation, le modèle qui a le MSE le plus petit est le plus simple $Y = \alpha X1 + \beta X2 + \epsilon$. 
 
 #### Question b (Analyse Discriminante)
 ##### 1/
@@ -374,9 +308,45 @@ head(iris)
 
 On souuhaite estimer le paramètre défini par $l = \mathbb{E}(min(X_1 + X_2, X_1 + X_3 + X_4, X_2 + X_3))$. Pour tout $i = 1,...,150$, $xi = (x_{i1}, x_{i2}, x_{i3}, x_{i4})$ est une observation d'un  vecteur aléatoire $X = (X_1, x_2, X_3, X_4)^t$  
 
-Un estimateur de $l = \mathbb{E}(min{X_1 + X_2, X_1 + X_3 + X_4, X_2 + X_3})$ peut être par exemple $\hat{l} = min(\mathbb{E}(X_1 + X_2), \mathbb{E}(X_1 + X_3 + X_4), \mathbb{E}(X_2 + X_4))$. 
+Un estimateur de $l = \mathbb{E}(min{X_1 + X_2, X_1 + X_3 + X_4, X_2 + X_3})$ peut être par exemple $\hat{l} = min(\mathbb{E}(X_1 + X_2), \mathbb{E}(X_1 + X_3 + X_4), \mathbb{E}(X_2 + X_3))$. 
 
 On peut approximer l'espérance par les données que l'on a, on a donc $\hat{l} = min(\sum\limits_{i=1}^{150} \frac{x_{i1} + x_{i2}}{150},\sum\limits_{i=1}^{150} \frac{x_{i1} + x_{i3} + x_{i4}}{150}, \sum\limits_{i=1}^{150} \frac{x_{i2} + x_{i3}}{150})$ 
 
 
 #### Question b
+Pour estimer le paramètre $\hat{l}$, on va utiliser la méthode de bootstrap.
+```{r}
+model1.fn = function(data,index) {
+  mean(data[index,1]) + mean(data[index,2])
+}
+
+model2.fn = function(data,index) {
+  mean(data[index,1]) + mean(data[index,3]) + mean(data[index,4])
+}
+
+model3.fn = function(data,index) {
+  mean(data[index,2]) + mean(data[index,3])
+}
+
+boot(iris, model1.fn, R = 1500)$t0
+boot(iris, model2.fn, R = 1500)$t0
+boot(iris, model3.fn, R = 1500)$t0
+
+
+```
+Le modèle 3 est le minimum, nous allons le garder pour trouver un encadrement de notre paramètre $\hat{l}$.
+```{r}
+d = boot(iris, model3.fn, R = 1500)
+# L'estimation du biais et de l'ecart type est déja donné dans les résultats
+# biais 
+mean(d$t) - d$t0
+
+# ecart type
+sd(d$t)
+# L'intervalle de confiance de l_hat est [ min_l, max_l ]
+min_l = d$t0 - 2*sd(d$t)
+
+# et 
+max_l = d$t0 + 2*sd(d$t)
+print(paste("[ ",min_l," , ",max_l," ]"))
+```
