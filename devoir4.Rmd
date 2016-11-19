@@ -1,0 +1,194 @@
+---
+title: "Devoir Méthode statistique d'apprentissage 4"
+author: "Louis Henri Franc"
+date: "14 novembre 2016"
+output:
+html_document: default
+pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Question 1
+
+Dans le cas de régression, on dispose de n observations de la forme {($x_i,y_i$)}, $i = 1,...,n$ où chaque $x_i$ est un vecteur de dimension $p$. On considère alors la matrice usuelle des observations X,
+\begin{bmatrix}
+    1 & x_{1,1} & x_{1,2} & x_{1,3} & ... & x_{1,p} \\
+     & .. & .. & .. & .. & .. \\
+      &  &  &  &  & .. \\
+    1 & x_{n,1} & x_{n,2} & x_{n,3} & .. & x_{n,p} \\
+\end{bmatrix}
+ le vecteur __y__ $= (y_1,y_2, ..., y_n)^T$, ainsi que le vecteur des coefficients $\beta = (\beta_0, \beta_1, ..., \beta_p)^T$.
+ Certaines contraintes sont imposées sur les $\beta$, on peut les représenter sous la forme d'une matrice de contraintes $C \beta = b$.  
+Chaque contrainte $i, \forall i = 1, k$ peut s'écrire de la forme $c_{i,1} \beta_0 + c_{i,2} \beta_1 + ... + c_{i,p+1}\beta_p = b_i$.  
+
+On cherche donc à trouver $\beta$ tel que $\beta_{opt} = \underset{\beta}{\arg\min}(y - X\beta)^T(y - X\beta)$ sous les contraintes que $C\beta = b$. Il est possible de résoudre ce problème en utilisant la méthode de lagrange. \\ On introduit un vecteur $\lambda = (\lambda_0, \lambda_1, ..., \lambda_k)$ où chaque $\lambda_i$ est un multiplicateur de lagrange pour la contrainte i.   
+
+
+Le nouvel $\lambda_{opt}$ peut peut donc s'écrire comme $\phi(X,\beta, \lambda) =\underset{\beta}{\arg\min}((y - X\beta)^T(y - X\beta) + \lambda^T(C\beta - b)$.  
+
+On dérive par rapport à $\beta$: 
+ $\frac{d\phi(X,\beta, \lambda)}{d\beta} = \frac{d\phi(beta)}{d\beta} = - 2X^Ty + 2X^TX\beta + \lambda C$   
+
+Ainsi si $\phi(X,\beta, \lambda) = 0$, alors $\beta(X^TX) = X^Ty - \frac{1}{2}\lambda C \Leftrightarrow  \beta_{opt} = (X^TX)^{-1}(X^Ty - \frac{1}{2}\lambda C)$ avec $\lambda$ qui est la solution de $\frac{d\phi(X,\beta, \lambda)}{d\lambda} =  0$, c'est à dire que $C\beta = b$  
+
+
+# Question 2
+On considère la base de donnée __Carseats__ disponible avec le package ISLR. On recherche un bon modèle afin de prédire les ventes _Sales_ en utilisant les 10 autres variables de la base de données comme inputs.
+La méthode de validation croisée sera utiliser, ainsi que celle du 10-fold CV.
+```{r}
+library("ISLR")
+head(Carseats)
+```
+
+## Séparation des données
+
+Les données vont être séparés en deux groupes qui serviront pour toutes les questions suivantes. La méthode _sample_permet de choisir un échantillon sans remise pour les données d'entrainements, et de laisser le reste pour les données de test.
+```{r}
+set.seed(123)
+
+smp_size = floor(0.5 * nrow(Carseats))
+train_ind = sample(seq_len(nrow(Carseats)), size = smp_size)
+
+# Transformation des variables explicatives qualititaves non numérique
+Carseats$ShelveLoc = ifelse(Carseats$ShelveLoc == "Medium", 1,ifelse(Carseats$ShelveLoc == "Bad", 2,0))
+Carseats$Urban = ifelse(Carseats$Urban == "Yes",1, 0)
+Carseats$US = ifelse(Carseats$US == "Yes",1, 0)
+
+train = Carseats[train_ind,]
+test = Carseats[-train_ind,]
+```
+
+## Approche par meilleur sous ensemble
+La fonction regsubsets, issu du packet leaps, permet d'effectuer différentes forme de sélection de modèles pas à pas. Nous allons utiliser la méthode de _forward selection_
+```{r}
+library("leaps")
+library("glmnet")
+library("ISLR")
+# FORWARD STEPWISE SELECTION
+regfw.subset = regsubsets(Sales ~ . , train, nbest = 1, nvmax = 10, method = "forward")
+regfwd.summary = summary(regfw.subset)
+plot(regfw.subset, scale = "adjr2")
+
+# CROSS VALIDATION
+folds = sample(rep(1:10, length = nrow(train)))
+cv.errors = matrix(NA, 10, 10)
+
+prediction.regsubsets = function(object, newdata, id, ...){
+  form = as.formula(object$call[[2]]) #extract object model formula for y ~ x
+  mat = model.matrix(form, newdata) #set prediction matrix
+  coefi = coef(object, id = id) #obtain matrix of coefficients
+  mat[, names(coefi)] %*% coefi #calculate predictions matrix
+}
+
+for(k in 1:10){
+  best.fit = regsubsets(Sales ~ .  , data = train[folds != k, ], nvmax = 10, 
+                        method = "forward")
+  for(i in 1:10){
+    pred = prediction.regsubsets(best.fit, train[folds == k, ], id = i)
+    
+    cv.errors[k, i] = mean((train$Sales[folds == k] - pred) ^ 2)
+  }
+}
+rmse.cv = sqrt(apply(cv.errors, 2, mean))
+plot(rmse.cv, pch = 10, type = "b",xlab = "Model")
+which.min(rmse.cv) # Le meilleur modèle est le modèle 7 
+
+x.test = model.matrix(Sales ~., data = test)
+val.errors = rep(NA, 10)
+
+# Calculer le MSE pour tous les modèles (et voir si le modèle choisi minimise le MSE des données de test)
+for(i in 1:10){
+  coefi = coef(regfw.subset, id = i)
+  pred = x.test[ , names(coefi)] %*% coefi 
+  val.errors[i] = mean((test$Sales - pred) ^ 2)
+}
+
+paste("Modele", which.min(val.errors), "MSE", min(val.errors), sep = " ") # Le meilleur modèle lors de la phase de test est le modèle 6.
+```
+
+
+## Approche par Ridge
+Avec les données d'entrainements, ajuster un modèle de régression ridge en utilisant la fonction glmnet.
+```{r}
+library(glmnet)
+x = model.matrix(Sales ~. , data = train) #-1 ensures y is not included
+y = train$Sales
+
+# RIDGE REGRESSION MODEL
+fit.ridge = glmnet(x, y, alpha = 0)
+plot(fit.ridge, xvar = "lambda", label = TRUE, xlab = "lambda", )
+legend("bottomright", names(train[-1,]), lty=1,  cex=.75)
+
+# trouver la valeur optimal de LAMBDA en utilisant CROSS VALIDATION
+cv.ridge = cv.glmnet(x, y, alpha = 0)
+plot(cv.ridge)
+
+# En regardand le graphe, le lambda maximal qui minise le MSE est exp(-2)
+# Pour obtenir une valeur exacte, on peut utiliser la valeur obtenur par cross validation
+lambda.min = cv.ridge$lambda.min
+lambda.min
+
+# Calcul du MSE
+fit.ridge = glmnet(x, y,alpha = 0, lambda = lambda.min)
+fit.pred = predict(fit.ridge, as.matrix(test))
+print(paste("MSE : ", mean((fit.pred - test$Sales) ^ 2)))
+
+
+```
+
+## Approche avec LASSO
+Avec les donnnées d'entrainements, ajuster un modèle de régression LASSO en utilissant la fonction glmnet
+```{r}
+# LASSO REGRESSION MODEL
+fit.lasso = glmnet(x, y, alpha = 1)
+plot(fit.lasso, xvar = "lambda", label = T)
+legend("bottomleft", names(train[-1,]), lty=1,  cex=.75)
+
+# trouver la valeur optimal de LAMBDA en utilisant CROSS VALIDATION
+cv.lasso = cv.glmnet(x, y, alpha = 1)
+plot(cv.lasso)
+
+# En regardand le graphe, le lambda maximal qui minise le MSE est exp(-3)
+# Pour obtenir une valeur exacte, on peut utiliser la valeur obtenur par cross validation
+lambda.min = cv.lasso$lambda.min
+lambda.min
+
+# Calcul du MSE
+fit.lasso = glmnet(x, y,alpha = 1, lambda = lambda.min)
+fit.pred = predict(fit.lasso, as.matrix(test))
+print(paste("MSE : ", mean((fit.pred - test$Sales) ^ 2)))
+```
+
+Il est intéressant de calculer les valeurs des coefficients pour notre modèle LASSO sous la contrainte d'un $\lambda = e^{-3}$. L'avantage de la méthode LASSO, comparé à la méthode RIDGE, est qu'il est possible d'évaluer l'importance de certaines features. Le modèle LASSO effectue donc lui même une sélection des variables explicatives.
+
+## Approche composantes principales
+Avec les données d'entraînement, utiliser la fonction plsr() de R pour ajuster les modèles linéaires de M composantes (directions) 
+```{r}
+library(pls)
+pcr.fit = pcr(Sales  ~., data = Carseats, scale = T, validation = "CV")
+summary(pcr.fit)
+# Si l'on choisit que 80% de la variance est suffisant pour expliquer le modèle alors M = 7 est une valeur suffisante 
+
+validationplot(pcr.fit, val.type = "MSEP")
+# Cependant le MSE minimal est obtenue pour une valeur de M=  10. Nous prendrons M = 10
+# Ainsi le MSE ajusté est égal à :
+pcr.fit$validation$adj[10]
+```
+
+
+## Approche moindre carrés partiels
+Avec les données d'entrainements, utiliser la fonction plsr() de R, pour ajuster les modèles linéaires de M composantes. 
+```{r}
+pls.fit = plsr(Sales ~., data = train, scale = T, validation = "CV")
+summary(pls.fit)
+validationplot(pls.fit, val.type = "MSEP") # M= 5 est la variable optimale la plus petite. Cependant cette valeur de M n'explique que pour 70 % de la variance de la variable de sortie
+print(paste("adj MSE : ", pls.fit$validation$adj[5]))
+
+pls.fit = plsr(Salary ~., data = Hitters, scale = T, ncomp = 5)
+summary(pls.fit)
+```
+
+## Conclusion
+Le modèle des moindres carrés partiels semblent avoir le meilleur MSE en utilisant le moins de variables explicatives. Cependant puisque les valeurs obtenues pour l'erreur des moindres carrés sur les données de tests sont relativement similaire entre les différents modèles, on peut penser qu'il n'y a pas de modèle vraiment meilleur que les autres. La régression Ridge a un MSE élevé sur les données de test et ne permet pas de comprendre les variables explicatives inutile au modèle. Ce modèle est sans doute le moins bon des cinq.
