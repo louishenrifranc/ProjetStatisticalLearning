@@ -3,7 +3,6 @@ title: "Devoir Méthode statistique d'apprentissage 4"
 author: "Louis Henri Franc"
 date: "14 novembre 2016"
 output:
-html_document: default
 pdf_document: default
 ---
 
@@ -161,7 +160,7 @@ fit.pred = predict(fit.lasso, as.matrix(test))
 print(paste("MSE : ", mean((fit.pred - test$Sales) ^ 2)))
 ```
 
-Il est intéressant de calculer les valeurs des coefficients pour notre modèle LASSO sous la contrainte d'un $\lambda = e^{-3}$. L'avantage de la méthode LASSO, comparé à la méthode RIDGE, est qu'il est possible d'évaluer l'importance de certaines features. Le modèle LASSO effectue donc lui même une sélection des variables explicatives.
+Il est intéressant de calculer les valeurs des coefficients pour notre modèle LASSO sous la contrainte d'un $\lambda = 0.01618018$. L'avantage de la méthode LASSO, comparé à la méthode RIDGE, est qu'il est possible d'évaluer l'importance de certaines features. Le modèle LASSO effectue donc lui même une sélection des variables explicatives.
 
 ## Approche composantes principales
 Avec les données d'entraînement, utiliser la fonction plsr() de R pour ajuster les modèles linéaires de M composantes (directions) 

@@ -1,3 +1,4 @@
+'''  @copyright 2016 Louis Henri Franc @licence MIT License '''
 from __future__ import print_function
 from nltk.stem import *
 from nltk.corpus import stopwords
@@ -151,6 +152,7 @@ def generate_batch(data,
         y_data.append([skip_gram_pair[i][1]])
     return x_data, y_data
 
+
 # Plot the data
 def plot_with_labels(final_embeddings, filename='tsne' + version + '.png'):
     reverse_dictionary = cPickle.load(open('rdic' + version + '.p', 'rb'))
@@ -170,7 +172,6 @@ def plot_with_labels(final_embeddings, filename='tsne' + version + '.png'):
                      ha='right',
                      va='bottom')
     plt.savefig(filename)
-
 
 
 def build_model(data):
@@ -238,15 +239,16 @@ def sentences_to_embedding(embeddings, reverse_dictionnary):
     labels = {reverse_dictionnary[i]: embeddings[i] for i in range(len(reverse_dictionnary))}
     cPickle.dump(labels, open('word_to_embedding' + version + '.p', 'wb'))
 
+    labels = {embeddings[i]: reverse_dictionnary[i] for i in range(len(reverse_dictionnary))}
+    cPickle.dump(labels, open('embedding_to_word' + version + '.p', 'wb'))
+
 
 if __name__ == '__main__':
     # tokenizing_file()
 
-    data = pd.read_pickle('tokenized_sentences' + version + '.p')
+    data = pd.read_pickle('word_as_number' + version + '.p')
     create_dictionnary(data)
 
     build_model(data)
-
-
 
     sentences_to_embedding(None, None)
