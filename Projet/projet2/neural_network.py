@@ -16,10 +16,6 @@ def read_file():
     data = pd.read_csv('kc_house_data.csv')
     data = data.drop(['id', 'date', 'sqft_lot', 'sqft_above', 'sqft_basement', 'yr_renovated', 'zipcode', 'lat', 'long',
                       'sqft_living15', 'sqft_lot15'], 1)
-    # data[['price', 'bedrooms', 'sqft_living', 'bathrooms', 'floors']] = data[[
-    #     'price', 'bedrooms', 'sqft_living', 'bathrooms', 'floors']].apply(
-    #     lambda x: (x - x.mean()) / (x.max() - x.min()))
-
     for col in data:
         print(data.ix[1:3, col], col)
 
@@ -49,18 +45,13 @@ class NN():
     def __init__(self, data):
         self.data = data
         self.N_EXAMPLES = len(data)
-        self.BATCH_SIZE = 16
+        self.BATCH_SIZE = 32
         self.N_INPUT = 9
         self.N_OUTPUT = 1
 
         X = T.fmatrix('X')
         Y = T.fvector('Y')
-
-        self.model = {}
-        self.model['l_in'] = InputLayer(input_var=X, shape=(self.BATCH_SIZE, self.N_INPUT))
-        self.model['l_hid1'] = DenseLayer(self.model['l_in'],
-                                          self.N_INPUT * 10)
-        self.model['l_hid1'] = DropoutLayer(self.model['l_hid1'], p=0.2)
+        dropout_prob = T.scalar('p_drop', dtype=theano.config.floatX)
 
         # About batch_norm : This layer should be inserted between a linear transformation
         # (such as a DenseLayer, or Conv2DLayer) and its nonlinearity.
@@ -70,20 +61,31 @@ class NN():
         # About the ordering of the batch norm and dropout layer:
         # -> MLP_Layer_FC -> BatchNorm -> ReLu(or other activation) -> Dropout -> MLP_Layer_FC ->
         # https://arxiv.org/pdf/1502.03167.pdf
-        self.model['l_hid1'] = lasagne.layers.batch_norm(self.model['l_hid1'])
+        self.model = {}
+        self.model['l_in'] = InputLayer(input_var=X, shape=(self.BATCH_SIZE, self.N_INPUT))
 
+        # Hidden 1
+        self.model['l_hid1'] = DenseLayer(self.model['l_in'],
+                                          self.N_INPUT * 10)
+        self.model['l_hid1'] = lasagne.layers.batch_norm(self.model['l_hid1'])
+        self.model['l_hid1'] = DropoutLayer(self.model['l_hid1'], p=dropout_prob)
+
+        # Hidden 2
         self.model['l_hid2'] = DenseLayer(self.model['l_hid1'],
                                           self.N_INPUT * 5)
-        self.model['l_hid2'] = DropoutLayer(self.model['l_hid2'], p=0.2)
         self.model['l_hid2'] = lasagne.layers.batch_norm(self.model['l_hid2'])
+        self.model['l_hid2'] = DropoutLayer(self.model['l_hid2'], p=dropout_prob)
 
+        # Hidden 3
         self.model['l_hid3'] = DenseLayer(self.model['l_hid2'],
                                           self.N_INPUT * 2)
-        self.model['l_hid3'] = DropoutLayer(self.model['l_hid3'], p=0.2)
         self.model['l_hid3'] = lasagne.layers.batch_norm(self.model['l_hid3'])
+        self.model['l_hid3'] = DropoutLayer(self.model['l_hid3'], p=dropout_prob)
 
+        # Hidden 4
         self.model['l_hid4'] = DenseLayer(self.model['l_hid3'],
                                           self.N_INPUT)
+
         self.model['l_out'] = DenseLayer(self.model['l_hid4'], 1)
 
         # Loss expression for training
@@ -102,7 +104,7 @@ class NN():
         loss_test = T.mean(T.sqr(T.sub(out_test, Y)), axis=0)
         rmse_test = T.sqrt(loss_test)
 
-        self.train_fn = theano.function([X, Y], [loss], updates=updates)
+        self.train_fn = theano.function([X, Y, dropout_prob], [loss], updates=updates)
         self.test_fn = theano.function([X, Y], rmse_test)
 
         self.create_batches()
@@ -152,6 +154,7 @@ class NN():
         self.NUM_EPOCH = 1000
         train_loss = []
         test_loss = []
+        p_drop = 0.1
         for epoch in range(self.NUM_EPOCH):
             train_err = 0
             n_train_batches = 0
@@ -160,7 +163,7 @@ class NN():
                 X_batch_train, y_batch_train = batch_train
                 #  print(X_batch_train.shape, y_batch_train.shape)
 
-                err_train = self.train_fn(X_batch_train, y_batch_train)
+                err_train = self.train_fn(X_batch_train, y_batch_train, p_drop)
                 # if random.random() < 0.05:
                 #    print(err_train[1], err_train[2], err_train[3])
                 train_err += err_train[0]
@@ -184,7 +187,7 @@ class NN():
             if test_loss[-1] == min(test_loss):
                 self.save_model(self.model['l_out'])
                 print('\t\tModel saved')
-
+            p_drop += (0.4 / self.NUM_EPOCH)
 
 if __name__ == '__main__':
     # read_file()
