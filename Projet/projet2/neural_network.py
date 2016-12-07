@@ -4,18 +4,26 @@ import lasagne
 from lasagne.layers import InputLayer, BatchNormLayer, DropoutLayer, DenseLayer, ReshapeLayer
 import theano
 import random
+import os
+import cPickle
 import numpy as np
 import time
 import matplotlib.pyplot as plt
+from sklearn.preprocessing import normalize
 
 
 def read_file():
     data = pd.read_csv('kc_house_data.csv')
+    data = data.drop(['id', 'date', 'sqft_lot', 'sqft_above', 'sqft_basement', 'yr_renovated', 'zipcode', 'lat', 'long',
+                      'sqft_living15', 'sqft_lot15'], 1)
+    # data[['price', 'bedrooms', 'sqft_living', 'bathrooms', 'floors']] = data[[
+    #     'price', 'bedrooms', 'sqft_living', 'bathrooms', 'floors']].apply(
+    #     lambda x: (x - x.mean()) / (x.max() - x.min()))
+
     for col in data:
-        if col in ['id', 'date', 'sqft_lot', 'sqft_above', 'sqft_basement', 'yr_renovated', 'zipcode', 'lat', 'long',
-                   'sqft_living15', 'sqft_lot15']:
-            data = data.drop(col, 1)
-    data.to_pickle('data.csv')
+        print(data.ix[1:3, col], col)
+
+    data.to_pickle('data.p')
     return data
 
 
@@ -48,34 +56,48 @@ class NN():
         X = T.fmatrix('X')
         Y = T.fvector('Y')
 
-        model = {}
-        model['l_in'] = InputLayer(input_var=X, shape=(self.BATCH_SIZE, self.N_INPUT))
-        model['l_hid1'] = DenseLayer(model['l_in'],
-                                     self.N_INPUT * 10)
-        model['l_hid1'] = DropoutLayer(model['l_hid1'], p=0.2)
-        model['l_hid2'] = DenseLayer(model['l_hid1'],
-                                     self.N_INPUT * 5)
-        model['l_hid2'] = DropoutLayer(model['l_hid2'], p=0.2)
-        model['l_hid3'] = DenseLayer(model['l_hid2'],
-                                     self.N_INPUT * 2)
-        model['l_hid3'] = DropoutLayer(model['l_hid3'], p=0.2)
-        model['l_hid4'] = DenseLayer(model['l_hid3'],
-                                     self.N_INPUT)
-        # model['l_drop1'] = DropoutLayer(model['l_hid1'], 0.3)
-        model['l_out'] = DenseLayer(model['l_hid4'], 1)
+        self.model = {}
+        self.model['l_in'] = InputLayer(input_var=X, shape=(self.BATCH_SIZE, self.N_INPUT))
+        self.model['l_hid1'] = DenseLayer(self.model['l_in'],
+                                          self.N_INPUT * 10)
+        self.model['l_hid1'] = DropoutLayer(self.model['l_hid1'], p=0.2)
+
+        # About batch_norm : This layer should be inserted between a linear transformation
+        # (such as a DenseLayer, or Conv2DLayer) and its nonlinearity.
+        # The convenience function batch_norm() modifies an existing layer to insert batch
+        # normalization in front of its nonlinearity.
+
+        # About the ordering of the batch norm and dropout layer:
+        # -> MLP_Layer_FC -> BatchNorm -> ReLu(or other activation) -> Dropout -> MLP_Layer_FC ->
+        # https://arxiv.org/pdf/1502.03167.pdf
+        self.model['l_hid1'] = lasagne.layers.batch_norm(self.model['l_hid1'])
+
+        self.model['l_hid2'] = DenseLayer(self.model['l_hid1'],
+                                          self.N_INPUT * 5)
+        self.model['l_hid2'] = DropoutLayer(self.model['l_hid2'], p=0.2)
+        self.model['l_hid2'] = lasagne.layers.batch_norm(self.model['l_hid2'])
+
+        self.model['l_hid3'] = DenseLayer(self.model['l_hid2'],
+                                          self.N_INPUT * 2)
+        self.model['l_hid3'] = DropoutLayer(self.model['l_hid3'], p=0.2)
+        self.model['l_hid3'] = lasagne.layers.batch_norm(self.model['l_hid3'])
+
+        self.model['l_hid4'] = DenseLayer(self.model['l_hid3'],
+                                          self.N_INPUT)
+        self.model['l_out'] = DenseLayer(self.model['l_hid4'], 1)
 
         # Loss expression for training
-        out = lasagne.layers.get_output(model['l_out'])
+        out = lasagne.layers.get_output(self.model['l_out'])
         out = T.reshape(out, (out.shape[0],))
         loss = T.mean(T.sqr(T.sub(out, Y)), axis=0)
-        l2_reg = lasagne.regularization.regularize_network_params({model['l_out']: 0.01},
+        l2_reg = lasagne.regularization.regularize_network_params({self.model['l_out']: 0.01},
                                                                   penalty=lasagne.regularization.l2)
         loss += l2_reg
-        all_params = lasagne.layers.get_all_params(model['l_out'], trainable=True)
+        all_params = lasagne.layers.get_all_params(self.model['l_out'], trainable=True)
         updates = lasagne.updates.adadelta(loss, all_params)
 
         # Loss expression for testing
-        out_test = lasagne.layers.get_output(model['l_out'], deterministic=True)
+        out_test = lasagne.layers.get_output(self.model['l_out'], deterministic=True)
         out_test = T.reshape(out_test, (out_test.shape[0],))
         loss_test = T.mean(T.sqr(T.sub(out_test, Y)), axis=0)
         rmse_test = T.sqrt(loss_test)
@@ -111,8 +133,23 @@ class NN():
             excerpt = indices[start_idx:start_idx + self.BATCH_SIZE]
             yield self.data[train_or_test][0][excerpt], self.data[train_or_test][1][excerpt]
 
+    def save_model(self, output_layer, filename='model.p'):
+        """Pickels the parameters within a Lasagne model."""
+        data = lasagne.layers.get_all_param_values(output_layer)
+        filename = os.path.join('./', filename)
+        filename = '%s.%s' % (filename, 'params')
+        with open(filename, 'w') as f:
+            cPickle.dump(data, f)
+
+    def load_model(self, output_layer, filename='model.p'):
+        """Unpickles and loads parameters into a Lasagne model."""
+        filename = os.path.join('./', '%s.%s' % (filename, 'params'))
+        with open(filename, 'r') as f:
+            data = cPickle.load(f)
+        lasagne.layers.set_all_param_values(output_layer, data)
+
     def train(self):
-        self.NUM_EPOCH = 100
+        self.NUM_EPOCH = 1000
         train_loss = []
         test_loss = []
         for epoch in range(self.NUM_EPOCH):
@@ -144,9 +181,13 @@ class NN():
                 epoch + 1, self.NUM_EPOCH, time.time() - start_time))
             print("  training loss:\t\t{:.6f}".format(train_err / n_train_batches))
             print("  validation loss:\t\t{:.6f}".format(val_rmse / n_val_batches))
+            if test_loss[-1] == min(test_loss):
+                self.save_model(self.model['l_out'])
+                print('\t\tModel saved')
 
 
 if __name__ == '__main__':
-    data = read_file()
+    # read_file()
+    data = pd.read_pickle('data.p')
     neural_network = NN(data)
     neural_network.train()
