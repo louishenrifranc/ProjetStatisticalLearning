@@ -20,6 +20,9 @@ library("glmnet")
 library("pls")
 library("class")
 library("MASS")
+library(boot)
+library(tree)
+library(randomForest)
 set.seed(123)
 ```
 
@@ -30,7 +33,7 @@ Pour le devoir j'ai décidé de travailler sur l'ensemble de donnée __House Sales 
 # Importer les données
 data <- read.csv("kc_house_data.csv")
 ```
-Regardons ensemble, quelles sont les données disponibles dans ce dataset. 
+Regardons ensemble, quelles sont les données disponibles dans cet ensemble de donnée 
 ```{r}
 # Afficher quelques lignes
 head(data)
@@ -45,32 +48,18 @@ ncol(data)
 
 Cette base de donnée est constitué d'un très grand nombre d'examples, ce qui nous permettra d'entrainer plusieurs modèles de prédiction, et de séparer nos données en un ensemble d'entrainement et un ensemble de validation.  
 
-## Sélection des prédicateurs utilisées
 
-Parmi les données, certaines ne nous permettront pas de prédire le prix des maisons, les supprimer est légitime, il s'agit de l'id, la date, le zipcode, la lat, et la longitude. Cela me semblait être des potentiels sources de confusion pour l'entrainement des modèles.  
+
+## Nettoyage des données
+#### Sélection des prédicateurs utilisées
+
+Parmi les données, certaines ne nous permettront pas de prédire le prix des maisons, les supprimer est légitime, il s'agit de l'id, la date, le zipcode, la lattitude, et la longitude. Cela me semblait être des potentiels sources de confusion pour l'entrainement des modèles.  
 ```{r}
 data = data[,-c(1:2, 17:19)]
 ```
-Toutes les données sont numériques. Les variables comme _bathrooms, bedrooms, floors_ seront laissés comme variable numérique, car une différence entre ces valeurs s'interprête relativement bien. Ce n'est pas le cas des variables comme _condition_, _view_ et _grade_. Condition a trois facteurs maximums, tandis que grade en a au moins cinq. Il est donc mieux de les convertir en "dummy variable". Nous allons créer une fonction, que nous appelerons suivant les modèles entrainées.
-```{r}
-as.dummy_variable = function (data){
-  data$floor = factor(data$floor)
-  data$view = factor(data$view)
-  data$condition = factor(data$condition)
-  data$grade = factor(data$grade)
-  return(data)
-}
 
-```
-
-## Quelques statistiques sur nos données
-Afin de comprendre un peu mieux l'ensemble de données, nous allons utiliser la fonction _summary_ et obtenir certaines statistiques sur nos variable explicatives (moyenne, minimal, maximal, variance, médiane)
-```{r}
-summary(data)
-```
-
-## Suppression des données abérrantes
-La suppression des données abérrantes autant pour les prédicateurs, que pour les variables explicatives permet, en général, d'améliorer la qualité des modèles. Cela permet par exemple de réduire la variance. Comme nous avons beaucoup d'examples, les supprimer est possible. Nous allons seulement supprimer les outliers des prédicateurs de surface, mais aussi de la variable explicative _prix_. En effet, dans notre base de donnée se trouvent certainement des maisons très cheres, ou très bas prix, et prédire leur prix sera impossible pour tout modèle. Si le modèle est suffisament flexible, il pourra peut être prédire le prix de ces exemples, mais le modèle overfittera certainement.
+#### Suppression des données abérantes
+La suppression des données abérrantes autant pour les prédicateurs, que pour les variables explicatives permet, en général, d'améliorer la qualité des modèles. Cela permet par exemple de réduire la variance. Comme nous avons beaucoup d'examples, les supprimer est possible. Nous allons seulement supprimer les outliers des prédicateurs de surface, mais aussi de la variable explicative _prix_. En effet, dans notre base de donnée se trouvent certainement des maisons très cheres, ou très bas prix, et prédire leur prix sera difficile pour tout modèle. Si le modèle est suffisament flexible, il pourra peut être prédire le prix de ces exemples, mais le modèle overfittera certainement.
 ```{r}
 remove_outliers <- function(x, na.rm = TRUE, ...) {
   qnt <- quantile(x, probs=c(.25, .75), na.rm = na.rm, ...)
@@ -96,8 +85,34 @@ print(nrow(data))
 
 Supprimer les données abérrantes va, évidemment, réduire le RSS, MSE calculés de nos données. Mais cela permettra sans doute de converger vers une solution qui généralisera mieux.
 
-## Séparation des ensembles d'entrainements et de tests
-Les données vont être séparés en deux groupes qui serviront pour l'entrainement de nos . Pour cela, nous allons utiliser la méthode _sample_
+
+#### Décorrélation des prédicateurs
+Afin d'éviter d'avoir des prédicateurs trop corrélés, nous allons supprimer une des deux variables des paires de prédicateurs qui ont une corrélation supérieur à 0.75. Les méthodes de sélection de sous modèles ont des performances accrues lorsque les variables explicatives ne sont pas trop corrélés.
+```{r}
+tmp = cor(data)
+tmp[lower.tri(tmp)] = 0
+diag(tmp) =  0
+data1 = data[, !apply(tmp, 2, function(x) any(x > 0.75))]
+setdiff(names(data), names(data1))
+data = data1
+```
+Trois variables ont été supprimés du modèle. Il s'agit de sqft_above, sqftliving15, sqft_lot15. Elles sont en effet très corrélés avec la variable sqft_living...
+
+####  Transformation des données non numériques
+Toutes les données sont numériques. Les variables comme _bathrooms, bedrooms, floors_ seront laissés comme variable numérique, car une différence entre ces valeurs s'interprête relativement bien. Ce n'est pas le cas des variables comme _condition_, _view_ et _grade_. _condition_ a trois facteurs maximums, tandis que grade en a au moins cinq. Il est donc mieux de les convertir en "dummy variable". Nous allons créer une fonction pour transformer ces variables qualitatives, que nous appelerons plus tard.
+```{r}
+as.dummy_variable = function (data){
+  data$floor = factor(data$floor)
+  data$view = factor(data$view)
+  data$condition = factor(data$condition)
+  data$grade = factor(data$grade)
+  return(data)
+}
+```
+
+
+#### Séparation des ensembles d'entrainements et de tests
+Les données vont être séparés en deux groupes qui serviront pour l'entrainement de nos modèles. Pour cela, nous allons utiliser la méthode _sample_
 ```{r}
 smp_size = floor(0.7 * nrow(data))
 train_ind = sample(seq_len(nrow(data)), size = smp_size)
@@ -105,6 +120,11 @@ train = data[train_ind,]
 test = data[-train_ind,]
 ```
 
+## Quelques statistiques sur nos données
+Afin de comprendre un peu mieux l'ensemble de données, nous allons utiliser la fonction _summary_ et obtenir certaines statistiques sur nos variable explicatives (moyenne, minimal, maximal, variance, médiane)
+```{r}
+summary(data)
+```
 
 ## Simple regression à une variable explicative
 
@@ -113,7 +133,7 @@ Nous allons tout d'abord effectuer des régressions simple à un prédicateur entre
 cor_matrix = cor(data)
 cor_matrix[,"price"]
 ```
-La variable explicative la plus corrélés est _sqft-living. 
+La variable numérique explicative la plus corrélée est _sqft-living_. 
 
 #### __Prix en fonction de la surface habitée__
 ```{r}
@@ -125,12 +145,12 @@ lm.rmse = sqrt(mean((lm.pred - test$price) ^2) )
 lm.rmse
 ```
 
-D'après le R^2 ajusté, la variance dans le prix de la maison s'explique en moitié uniquement par la donnée _sqft-living_. Le RMSE est cependant élevé, ce qui indique que le simple modèle linéaire est probablement incomplet, trop simple, ou incomplet. Nous allons à présent afficher le nuage de point.  
+D'après le R^2 ajusté, la variance dans le prix de la maison s'explique en moitié uniquement par la donnée _sqft-living_. Le RMSE est cependant élevé, ce qui indique que le simple modèle linéaire est probablement incomplet, ou trop simple. Nous allons à présent afficher le nuage de point.  
 ```{r}
 pairs(data[, c(1,4)])
 ```
 
-En regardant la courbe, il semblerait que les résidus augmentent avec la surface habitée. Nous pouvons essayer des modèles en modifiant la variable explicative.
+En regardant la courbe, il semblerait que la variabilité du prix augmente avec la surface habituée. Nous pouvons essayer de multiplier la surface par elle même et la considérer comme une nouvelle variable explicative.
 ```{r}
 lm.fit =lm(price ~  I(sqft_living ^ (2)), data=train)
 summary(lm.fit)
@@ -138,87 +158,19 @@ lm.pred = predict(lm.fit, test)
 sqrt(mean((lm.pred - test$price) ^2) )
 
 ```
-Remplacer sqft_living par sqrt(sqft_living), ou tout autre polynome (sqft_living^2, ^3) n'améliore pas la régression. 
+Après essai de plusieurs modifications non linéaires de sqft_living (sqrt, log, ^2, ^3), aucune ne semble amélioré la régression. 
 
 
 
-## Approche par meilleur sous ensembles.
-Nous allons utiliser la méthode de _forward selection_ afin de trouver le meilleur modèle de régression, mais aussi le nombre de variables explicatives qui expliquent le modèle. Tout d'abord nous allons étendre le nombre de variables explicatives à 10.  L'estimation de la qualité de la régression sera fait en utilisant le $R^2$ ajusté.
+## Approche par la régression LASSO
+L'avantage de la régression LASSO est qu'elle permet de sélectionner parmi les variables explicatives celles qui  expliquent le mieux la variable dépendante. Si le coefficient $\beta$ de la variable explicative tend vers zéro, alors la variable ne peut influencer la prédiction de la variable dépendante. Suivant les résultats de l'algorithme, nous allons restreindre, ou non, notre modèle encore plus.
 
-#### Traitement des données.
-Afin d'éviter d'avoir des _features_ trop corrélés entre elles, nous allons supprimer toutes les variables qui ont une corrélation supérieur à 0.75. Les méthodes de sélection de sous modèles ont des performances accrues lorsque les variables explicatives ne sont pas trop corrélés.
 ```{r}
-tmp = cor(data)
-tmp[lower.tri(tmp)] = 0
-diag(tmp) =  0
-data1 = data[, !apply(tmp, 2, function(x) any(x > 0.75))]
-setdiff(names(data), names(data1))
-data = data1
-data = as.dummy_variable(data[,-c(5,11)])
+# Transformer les données non numériques en dummy variable 
+data = as.dummy_variable(data)
 train = data[train_ind,]
 test = data[-train_ind,]
-```
-Trois variables ont été supprimés du modèle. Il s'agit de sqft_above, sqftliving15, sqft_lot15. Elles sont en effet très corrélés avec la variable sqft_living...
 
-#### Meilleur sous ensembles
-```{r, warnings=FALSE}
-
-# FORWARD STEPWISE SELECTION
-regfw.subset = regsubsets(price ~ ., train, nbest = 1, nvmax = 15, method= "forward")
-regfwd.summary = summary(regfw.subset)
-plot(regfw.subset, scale = "adjr2", main = "R^2 ajusté en fonction des diférents modèles (selection ascendante)")
-
-# BACKWARD STEPWISE SELECTION
-regfw.subset = regsubsets(price ~ ., train, nbest = 1, nvmax = 15, method= "backward")
-regfwd.summary = summary(regfw.subset)
-regfwd.summary
-plot(regfw.subset, scale = "adjr2", main = "R^2 ajusté en fonction des diférents modèles (selection descendante)")
-
-```
-
-Nous allons ensuite sélectionner le meilleur des 10 modèles par la méthode de _cross validation_.
-```{r, warning=FALSE, message=FALSE, error=FALSE}
-# CROSS VALIDATION
-folds = sample(rep(1:10, length = nrow(train)))
-cv.errors = matrix(NA, 10, 10)
-
-prediction.regsubsets = function(object, newdata, id, ...){
-  form = as.formula(object$call[[2]]) #extract object model formula for y ~ x
-  mat = model.matrix(form, newdata) #set prediction matrix
-  coefi = coef(object, id = id) #obtain matrix of coefficients
-  mat[, names(coefi)] %*% coefi #calculate predictions matrix
-}
-
-for(k in 1:10){
-  best.fit = regsubsets(price ~ .  , data = train[folds != k, ], nvmax = 10, 
-                        method = "forward")
-  for(i in 1:10){
-    pred = prediction.regsubsets(best.fit, train[folds == k, ], id = i)
-    
-    cv.errors[k, i] = mean((train$price[folds == k] - pred) ^ 2)
-  }
-}
-rmse.cv = sqrt(apply(cv.errors, 2, mean))
-plot(rmse.cv, pch = 10, type = "b",xlab = "Nombre de variable explicatives pour les différents meilleures modèles")
-
-# MEILLEUR Modèle sur l'ensemble d'entrainements
-which.min(rmse.cv)
-```
-Le meilleur validé est donc le modèle 10, que nous allons utiliser sur nos données de test.
-```{r}
-x.test = model.matrix(price ~., data = test)
-
-# Calculer le MSE pour tous les modèles (et voir si le modèle choisi minimise le MSE des données de test)
-coefi = coef(regfw.subset, id = 10)
-pred = x.test[ , names(coefi)] %*% coefi 
-paste("Modele 10, RMSE = ",sqrt(mean((test$price - pred) ^ 2)))
-```
-Comparé au simple modèle de régression à une variable explicative, le RMSE test a diminué de 30000. Cela s'explique en partie par ce que le modèle est plus flexible.
-
-## Approche par meilleur la régression LASSO
-L'avantage de la régression LASSO est qu'elle permet aussi de sélectionner parmi les variables explicatives celles qui  expliquent le mieux la variable explicative. Si le coefficient $\beta$ de la variable explicative tend vers zéro, alors la variable ne peut influencer la prédiction de la variable dépendante.
-
-```{r}
 # LASSO REGRESSION MODEL
 x = model.matrix(price ~., data=train)
 y = train[,1]
@@ -241,32 +193,135 @@ print(paste("RMSE : ", sqrt(mean((fit.pred - test$price) ^ 2))))
 coef.lasso = coef(cv.lasso)
 coef.lasso
 ```
-Pour un lambda optimal obtenue par la méthode de _cross validation_ (477.1), le coefficient de régression de la variable _yr.renovated_ est tout proche de zéro, ce qui laisse penser qu'il n'influencie pas le prix. 
+Pour un lambda optimal obtenue par la méthode de _cross validation_ (326.739), les coefficients de _sqft_lot_, _sqft_basement_ et _yr.renovated_ est tout proche de zéro, nous allons donc les supprimer de la régression.
+
+```{r}
+data = data[, -c(5, 11, 13)]
+train = data[train_ind,]
+test = data[-train_ind,]
+```
+
+
+## Approche par meilleur sous ensembles.
+Nous allons utiliser la méthode de _forward selection_ afin de trouver le meilleur modèle de régression, mais aussi le nombre de variables explicatives qui expliquent le modèle. Le nombre maximal de variable explicative à considérer sera 10. 
+
+```{r, warnings=FALSE}
+
+# FORWARD STEPWISE SELECTION
+regfw.subset = regsubsets(price ~ ., train, nbest = 1, nvmax = ncol(data)-1, method= "forward")
+regfwd.summary = summary(regfw.subset)
+plot(regfw.subset, scale = "adjr2", main = "R^2 ajusté en fonction des diférents modèles (selection ascendante)")
+
+# BACKWARD STEPWISE SELECTION
+regfw.subset = regsubsets(price ~ ., train, nbest = 1, nvmax = ncol(data)-1, method= "backward")
+regfwd.summary = summary(regfw.subset)
+plot(regfw.subset, scale = "adjr2", main = "R^2 ajusté en fonction des diférents modèles (selection descendante)")
+
+```
+
+Nous allons ensuite sélectionner le meilleur des 10 modèles par la méthode de _cross validation_.
+```{r, warning=FALSE, message=FALSE, error=FALSE}
+# CROSS VALIDATION
+folds = sample(rep(1:10, length = nrow(train)))
+cv.errors = matrix(NA, 10, ncol(data) - 1)
+
+prediction.regsubsets = function(object, newdata, id, ...){
+  form = as.formula(object$call[[2]]) #extract object model formula for y ~ x
+  mat = model.matrix(form, newdata) #set prediction matrix
+  coefi = coef(object, id = id) #obtain matrix of coefficients
+  mat[, names(coefi)] %*% coefi #calculate predictions matrix
+}
+
+for(k in 1:10){
+  best.fit = regsubsets(price ~ .  , data = train[folds != k, ], nvmax = ncol(data)-1, 
+                        method = "forward")
+  for(i in 1:(ncol(data)-1)){
+    pred = prediction.regsubsets(best.fit, train[folds == k, ], id = i)
+    
+    cv.errors[k, i] = mean((train$price[folds == k] - pred) ^ 2)
+  }
+}
+rmse.cv = sqrt(apply(cv.errors, 2, mean))
+plot(rmse.cv, pch = ncol(data)-1, type = "b",xlab = "Nombre de variable explicatives pour les différents meilleures modèles")
+
+# MEILLEUR Modèle sur l'ensemble d'entrainements
+which.min(rmse.cv)
+```
+Le meilleur validé est donc le modèle 10, que nous allons utiliser sur nos données de test.
+```{r}
+x.test = model.matrix(price ~., data = test)
+
+# Calculer le MSE pour tous les modèles (et voir si le modèle choisi minimise le MSE des données de test)
+coefi = coef(regfw.subset, id = 10)
+pred = x.test[ , names(coefi)] %*% coefi 
+paste("Modele 10, RMSE = ",sqrt(mean((test$price - pred) ^ 2)))
+```
+Comparé au simple modèle de régression à une variable explicative, le RMSE test a diminué de 30000. Cela s'explique en partie par ce que le modèle est plus flexible.
 
 ## Approche composantes principales
-L'approche des composantes principales est une autre techniques statistiques permettant de trouver les variables $X_i$ de la régression qui explique le maximum de variance. 
+L'approche des composantes principales est une autre techniques statistiques permettant de trouver les variables $X_i$ de la régression qui explique le maximum de variance de l'_output_. 
 ```{r}
-pcr.fit = pcr(price ~., data=data, scale=T, validation="CV")
+pcr.fit = pcr(price ~., data=data, scale=T, validation="CV", ncomp=27)
 summary(pcr.fit)
 
-validationplot(pcr.fit, val.type = "MSEP")
-pcr.fit$validation$adj[9]
+validationplot(pcr.fit, val.type = "RMSEP")
+
 ```
-La valeur optimale M du nombre de variables explicatives est 12. Cependant, on remarque que à partir de 9 variables, le MSE ajusté, ainsi que variance expliquée du modèle ne diminuent presque plus,. Nous allons donc prendre M = 9 pour mesurer notre MSE sur l'ensemble de test.
+
+La valeur optimale M du nombre de variables explicatives est 27. Cependant, on remarque que à partir de 24 variables, le RMSE, ainsi que variance expliquée du modèle sont proche de la valeure optimale. Nous allons donc prendre M = 24 pour mesurer notre MSE sur l'ensemble de test.
 ```{r}
-pcr.fit = pcr(price ~ ., data=train, scale=T, validation="CV", ncomp= 9)
-pcr.pred = predict(pcr.fit, test, ncomp = 9)
+pcr.fit = pcr(price ~ ., data=train, scale=T, validation="CV", ncomp= 24)
+pcr.pred = predict(pcr.fit, test, ncomp = 24)
 sqrt(mean((pcr.pred - test$price) ^2))
 ```
-Encore une fois le RMSE est au alentour de 160000, ce qui laisse penser que l'on ne peut obtenir meilleur résultat.
 
-## Analyse discriminante linéaire
+
+
+#### Arbre de regression
+Pour finir, nous allons utiliser la technique des arbres de régression, en effectuant la régression de la variable prix en utilisant les autres variables disponibles. Nous allons démarrer avec un simple arbre.
 ```{r}
-#lda.fit = lda(price ~ ., train)
-#plot(lda.fit)
+tree.fit = tree(price~., data=train)
+summary(tree.fit)
 
-#lda.pred = predict(lda.fit, test)
-#srt(mean(lda.pred - test$price) ^2)
+plot(tree.fit)
+text(tree.fit, pretty=0)
+
+tree.pred = predict(tree.fit, test)
+sqrt(mean((test$price - tree.pred)^2))
 ```
 
+Nous allons à présent essayer de réduire la profondeur de l'arbre en utilisant la méthode de _cross validation_ pour déterminer une profondeur optimale.
+```{r}
+tree.cv = cv.tree(tree.fit)
+plot(tree.cv$size, tree.cv$dev, type="b")
+
+tree.min = which.min(tree.cv$size)
+tree.min
+```
+La profondeur obtimale obtenue ci dessus correspond à la profondeur initial de notre arbre. Le RMSE est élevée, comparé aux scores des autres méthodes, sans doute parce que nous utilisons un seul arbre pour prédire le prix.  
+Une technique appelée Random Forest permet d'amélioré la qualité des arbres de régression, en récupérant le résultat de plusieurs arbres de régression, construit différemment. Chaque split dans chaque arbre est calculé à partir d'un nombre de prédicateurs m < (nombre de prédicateurs totaux). Voici les résultats pour m = 5.
+```{r}
+rf.fit = randomForest(price~., data=train, mtry=5, ntree=50, importance=TRUE)
+rf.pred = predict(rf.fit, test)
+sqrt(mean((test$price - rf.pred)^2))
+```
+Le RMSE est bien meilleur que pour un seul arbre, ce qui semble logique. Cette méthode obtient le meilleur score sur le RMSE test.
+
 ## Conclusion
+
+#### Résumé
+Après avoir épuré notre ensemble de départ, en supprimant les prédicateurs inutiles, décorrélant ceux restant, et retirant les outliers, nous avons pu entrainé plusieurs modèles. Chaque modèle devait prédire le prix de la maison en fonction d'une dizaine de prédicateurs maximum. La régression linéaire simple du prix en fonction de la surface habitée nous a permis d'établir un score minimum d'erreur à améliorer (RMSE test: 208662.5). Nous avons utilisé des modèles plus complexes, et voici les résultats: 
+* la régression Lasso (RMSE test: 164778.5), 
+* l'approche des meilleurs sous ensembles (RMSE test: 171457.7),
+* l'approche des composantes principales (RMSE test: 167071.6),
+* 1 arbre de régression (RMSE test: 191385.4)
+* l'approche des random forest (RMSE test: 162527.1).
+En reprenant les statistiques de test, nous trouvons que la moyenne des prix est de environ 506314 (après avoir supprimé les valeurs extrêmes). La moyenne des erreurs entre le vrai prix, et le prix obtenue par le meilleur modèle est de ~160000. Le pourcentage d'erreur moyen est de $\frac{160000}{506000} * 100$, ce qui fait environ 30%.  
+
+#### Analyse
+Ce pourcentage d'erreur me semble élevé, cependant le prix exact d'une maison à l'échelle d'une région est assez compliqué, et certains facteurs n'ont pas été pris en compte (comme la location). De plus les modèles utilisées supposaient une relation linéaire entre les prédicats, et la variable de sortie, ce qui n'est pas forcément le cas, au vue de la meilleur performance obtenue par la technique de ranfom forest. On aurait pu utiliser les réseaux de neurones par exemple.  
+Une amélioration possible serait d'utiliser les variables _lattitude_, et _longitude_, et de les transformer en une variable qui correspondrait à une région, car comme le montre ce graphique, ![](price.png), il semblerait y avoir une forte relation entre le prix de la maison, et la région
+
+
+#### Comparaison avec un autre kernel de Kaggle
+Kaggle est une plateforme qui permet de partager des bases de données, ainsi que des scripts d'analyse pour ces base de données. En comparant mes résultats avec ceux obtenues par le script le mieux classé pour cette base de donnée (https://www.kaggle.com/harlfoxem/d/harlfoxem/housesalesprediction/house-price-prediction-part-2), j'obtiens de meilleur résultat sur le RMSE test. 
